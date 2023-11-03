@@ -1,11 +1,11 @@
 # bigram model implementation
-import torch
+import torch, string
 
 words = open('makemore/names.txt', 'r').read().splitlines()
 
 ########## CLASSICAL STATISTICS MODEL ##########
 
-chars = ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z"]
+chars = string.ascii_lowercase.split("")
 ctoi = {c:i+1 for (i, c) in enumerate(chars)}
 ctoi["."] = 0 # special char to represent start and end of word
 itoc = {i:c for (c, i) in ctoi.items()}
