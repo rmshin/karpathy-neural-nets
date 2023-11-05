@@ -5,7 +5,7 @@ words = open('makemore/names.txt', 'r').read().splitlines()
 
 ########## CLASSICAL STATISTICS MODEL ##########
 
-chars = string.ascii_lowercase.split("")
+chars = list(string.ascii_lowercase)
 ctoi = {c:i+1 for (i, c) in enumerate(chars)}
 ctoi["."] = 0 # special char to represent start and end of word
 itoc = {i:c for (c, i) in ctoi.items()}
@@ -71,17 +71,27 @@ for k in range(20):
   ### update
   W.data += -50 * W.grad
 
+# calculate post-training loss
+logits = torch.stack([W[ix] for ix in xs])
+counts = logits.exp()
+P_NN = counts / counts.sum(1, keepdim=True)
+loss = -P_NN[torch.arange(num), ys].log().mean()
+print(loss) # tensor(2.5727, grad_fn=<NegBackward0>)
+
 # sample model
 g = torch.Generator().manual_seed(2147483647)
-for i in range(20):
-  out = []
-  ix = 0
-  while True:
-    logits = torch.stack([W[ix]])
-    counts = logits.exp()
-    p = counts / counts.sum(1, keepdim=True)
-    ix = torch.multinomial(p, num_samples=1, replacement=True, generator=g).item()
-    if ix == 0:
-      break
-    out.append(itoc[ix])
-  print("".join(out))
+def generate_words(num_words, g):
+  for _ in range(num_words):
+    out = []
+    ix = 0
+    while True:
+      logits = torch.stack([W[ix]])
+      counts = logits.exp()
+      p = counts / counts.sum(1, keepdim=True)
+      ix = torch.multinomial(p, num_samples=1, replacement=True, generator=g).item()
+      out.append(itoc[ix])
+      if ix == 0:
+        break
+    print("".join(out))
+
+generate_words(20, g)
