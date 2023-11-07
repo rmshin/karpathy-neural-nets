@@ -35,7 +35,7 @@ Xdev, Ydev = build_dataset(words[n1:n2])
 Xte, Yte = build_dataset(words[n2:])
 
 # create embeddings table (first layer)
-embed_dim = 5  # 2D vector embeddings
+embed_dim = 5  # 5D vector embeddings
 C = torch.randn((len(chars) + 1, embed_dim))  # torch.Size([27, 2])
 
 # create weights + biases (hidden layer)
