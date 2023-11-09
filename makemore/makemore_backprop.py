@@ -115,79 +115,54 @@ print(loss)
 dlogprobs = torch.zeros_like(logprobs)
 dlogprobs[range(batch_size), Yb] = -1.0 / batch_size
 cmp('logprobs', dlogprobs, logprobs) # dL/dlogprobs
-
 dprobs = (1 / probs) * dlogprobs
 cmp('probs', dprobs, probs) # dL/dlogprobs * dlogprobs/dprobs
-
 dcounts_sum_inv = (counts * dprobs).sum(1, keepdim=True)
 cmp('counts_sum_inv', dcounts_sum_inv, counts_sum_inv) # dL/dprobs * dprobs/dcounts_sum_inv
-
 dcounts_sum = -counts_sum**-2 * dcounts_sum_inv
 cmp('counts_sum', dcounts_sum, counts_sum) # dL/dcounts_sum_inv * dcounts_sum_inv/dcounts_sum
-
 dcounts = counts_sum_inv * dprobs + torch.ones_like(counts) * dcounts_sum
 cmp('counts', dcounts, counts) # dL/dprobs * dprobs/dcounts + dL/dcounts_sum * dcounts_sum/dcounts
-
 dnorm_logits = counts * dcounts
 cmp('norm_logits', dnorm_logits, norm_logits) # dL/dcounts * dcounts/dnorm_logits
-
 dlogit_maxes = (-dnorm_logits.clone()).sum(1, keepdim=True)
 cmp('logit_maxes', dlogit_maxes, logit_maxes) # dL/dnorm_logits * dnorm_logits/dlogit_maxes
-
 dlogits = dnorm_logits.clone() + F.one_hot(logits.max(1).indices, num_classes=logits.shape[1]) * dlogit_maxes
 cmp('logits', dlogits, logits) # dL/dnorm_logits * dnorm_logits/dlogits + dL/dlogit_maxes * dlogit_maxes/dlogits
-
-dh = dlogits @ W2.transpose(0, 1)
+dh = dlogits @ W2.T
 cmp('h', dh, h) # dL/dlogits @ W2^T
-
-dW2 = h.transpose(0, 1) @ dlogits
+dW2 = h.T @ dlogits
 cmp('W2', dW2, W2) # h^T @ dL/dlogits
-
 db2 = dlogits.sum(0)
 cmp('b2', db2, b2) 
-
 dh_preact = (1 - h**2) * dh
 cmp('hpreact', dh_preact, h_preact)
-
 dbngain = (bnraw * dh_preact).sum(0)
 cmp('bngain', dbngain, bngain)
-
 dbnbias = dh_preact.sum(0)
 cmp('bnbias', dbnbias, bnbias)
-
 dbnraw = dh_preact * bngain
 cmp('bnraw', dbnraw, bnraw)
-
 dbnvar_inv = (dbnraw * bndiff).sum(0)
 cmp('bnvar_inv', dbnvar_inv, bnvar_inv)
-
 dbnvar = -0.5 * (bnvar + 1e-5)**-1.5 * dbnvar_inv
 cmp('bnvar', dbnvar, bnvar)
-
 dbndiff2 = torch.ones_like(bndiff2) * 1/(batch_size - 1) * dbnvar
 cmp('bndiff2', dbndiff2, bndiff2)
-
 dbndiff = 2 * bndiff * dbndiff2 + dbnraw * bnvar_inv
 cmp('bndiff', dbndiff, bndiff)
-
 dbnmeani = (-dbndiff).sum(0)
 cmp('bnmeani', dbnmeani, bnmeani)
-
 d_hprebn = 1 / batch_size * torch.ones_like(h_prebn) * dbnmeani + dbndiff
 cmp('hprebn', d_hprebn, h_prebn)
-
-dembcat = d_hprebn @ torch.transpose(W1, 0, 1)
+dembcat = d_hprebn @ W1.T
 cmp('embcat', dembcat, embcat)
-
-dW1 = torch.transpose(embcat, 0, 1) @ d_hprebn
+dW1 = embcat.T @ d_hprebn
 cmp('W1', dW1, W1)
-
 db1 = d_hprebn.sum(0)
 cmp('b1', db1, b1)
-
 demb = dembcat.view(emb.shape)
 cmp('emb', demb, emb)
-
 dC = torch.zeros_like(C)
 for n in range(Xb.shape[0]):
    for m in range(Xb.shape[1]):
@@ -221,10 +196,11 @@ print(loss_fast.item(), 'diff:', (loss_fast - loss).item())
 
 # -----------------
 # YOUR CODE HERE :)
-dlogits = None # TODO. my solution is 3 lines
 # -----------------
-
-#cmp('logits', dlogits, logits) # I can only get approximate to be true, my maxdiff is 6e-9
+dlogits = F.softmax(logits, dim=1)
+dlogits[range(batch_size), Yb] -= 1
+dlogits /= batch_size
+cmp('logits', dlogits, logits) # I can only get approximate to be true, my maxdiff is 6e-9
 
 #########################
 
@@ -266,7 +242,148 @@ print('max diff:', (hpreact_fast - h_preact).abs().max())
 
 # -----------------
 # YOUR CODE HERE :)
-dhprebn = None # TODO. my solution is 1 (long) line
 # -----------------
+dh_prebn = bngain * bnvar_inv / batch_size * (batch_size * dh_preact - dh_preact.sum(0) - batch_size / (batch_size - 1) * bnraw * (bnraw * dh_preact).sum(0))
+cmp('hprebn', dh_prebn, h_prebn) # I can only get approximate to be true, my maxdiff is 9e-10
 
-cmp('hprebn', dhprebn, h_prebn) # I can only get approximate to be true, my maxdiff is 9e-10
+#########################
+
+# Exercise 4: putting it all together!
+# Train the MLP neural net with your own backward pass
+
+# init
+embed_dim = 10 # the dimensionality of the character embedding vectors
+n_hidden = 64 # the number of neurons in the hidden layer of the MLP
+vocab_size = len(itos)
+
+g = torch.Generator().manual_seed(2147483647) # for reproducibility
+C  = torch.randn((vocab_size, embed_dim), generator=g)
+# Layer 1
+W1 = torch.randn((embed_dim * block_size, n_hidden), generator=g) * (5/3)/((embed_dim * block_size)**0.5)
+b1 = torch.randn(n_hidden, generator=g) * 0.1 # b1 isn't actually relevant due to BN below
+# Layer 2
+W2 = torch.randn((n_hidden, vocab_size), generator=g) * 0.1
+b2 = torch.randn(vocab_size, generator=g) * 0.1
+# BatchNorm parameters
+bngain = torch.randn((1, n_hidden))*0.1 + 1.0
+bnbias = torch.randn((1, n_hidden))*0.1
+
+parameters = [C, W1, b1, W2, b2, bngain, bnbias]
+for p in parameters:
+  p.requires_grad = True
+
+with torch.no_grad():
+  for i in range(300000):
+    # minibatch construct
+    ix = torch.randint(0, Xtr.shape[0], (batch_size,), generator=g)
+    Xb, Yb = Xtr[ix], Ytr[ix] # batch X,Y
+
+    # forward pass
+    emb = C[Xb] # embed the characters into vectors
+    embcat = emb.view(emb.shape[0], -1) # concatenate the vectors
+    # Linear layer
+    h_prebn = embcat @ W1 + b1 # hidden layer pre-activation
+    # BatchNorm layer
+    # -------------------------------------------------------------
+    bnmean = h_prebn.mean(0, keepdim=True)
+    bnvar = h_prebn.var(0, keepdim=True, unbiased=True)
+    bnvar_inv = (bnvar + 1e-5)**-0.5
+    bnraw = (h_prebn - bnmean) * bnvar_inv
+    h_preact = bngain * bnraw + bnbias
+    # -------------------------------------------------------------
+    # Non-linearity
+    h = torch.tanh(h_preact) # hidden layer
+    logits = h @ W2 + b2 # output layer
+    loss = F.cross_entropy(logits, Yb) # loss function
+
+    # manual backprop
+    # -----------------
+    # YOUR CODE HERE :)
+    dlogits = F.softmax(logits, dim=1)
+    dlogits[range(batch_size), Yb] -= 1
+    dlogits /= batch_size
+    # second layer backprop
+    dh = dlogits @ W2.T
+    dW2 = h.T @ dlogits
+    db2 = dlogits.sum(0)
+    # tanh
+    dh_preact = (1 - h**2) * dh
+    # batch normalisation
+    dbngain = (bnraw * dh_preact).sum(0)
+    dbnbias = dh_preact.sum(0)
+    dh_prebn = bngain * bnvar_inv / batch_size * (batch_size * dh_preact - dh_preact.sum(0) - batch_size / (batch_size - 1) * bnraw * (bnraw * dh_preact).sum(0))
+    # first layer backprop
+    dembcat = dh_prebn @ W1.T
+    dW1 = embcat.T @ dh_prebn
+    db1 = dh_prebn.sum(0)
+    # embedding
+    demb = dembcat.view(emb.shape)
+    dC = torch.zeros_like(C)
+    for n in range(Xb.shape[0]):
+      for m in range(Xb.shape[1]):
+          ix = Xb[n, m]
+          dC[ix] += demb[n, m]
+    grads = [dC, dW1, db1, dW2, db2, dbngain, dbnbias]
+    # -----------------
+
+    # update
+    lr = 0.1 if i < 200000 else 0.01 # step learning rate decay
+    for p, grad in zip(parameters, grads):
+      p.data += -lr * grad
+
+# calibrate the batch norm at the end of training
+with torch.no_grad():
+  # pass the training set through
+  emb = C[Xtr]
+  embcat = emb.view(emb.shape[0], -1)
+  h_preact = embcat @ W1 + b1
+  # measure the mean/std over the entire training set
+  bnmean = h_preact.mean(0, keepdim=True)
+  bnvar = h_preact.var(0, keepdim=True, unbiased=True)
+
+# evaluate train and val loss
+@torch.no_grad()
+def split_loss(split):
+  x,y = {
+    'train': (Xtr, Ytr),
+    'val': (Xdev, Ydev),
+    'test': (Xte, Yte),
+  }[split]
+  emb = C[x] # (N, block_size, n_embd)
+  embcat = emb.view(emb.shape[0], -1) # concat into (N, block_size * n_embd)
+  h_preact = embcat @ W1 + b1
+  h_preact = bngain * (h_preact - bnmean) * (bnvar + 1e-5)**-0.5 + bnbias
+  h = torch.tanh(h_preact) # (N, n_hidden)
+  logits = h @ W2 + b2 # (N, vocab_size)
+  loss = F.cross_entropy(logits, y)
+  print(split, loss.item())
+
+split_loss('train')
+split_loss('val')
+
+# sample from model
+g = torch.Generator().manual_seed(2147483647)
+def generate_words(num_words, g):
+    for _ in range(num_words):
+        out = []
+        context = [0] * block_size
+        ix = 0
+        while True:
+            emb = C[torch.tensor([context])]  # torch.Size([1, 3, 2])
+            embcat = emb.view(emb.shape[0], -1)
+            h_preact = embcat @ W1 + b1
+            h_preact = bngain * (h_preact - bnmean) * (bnvar + 1e-5)**-0.5 + bnbias
+            h = torch.tanh(h_preact) # (N, n_hidden)
+            logits = h @ W2 + b2 # (N, vocab_size)
+            # sample
+            probs = F.softmax(logits, dim=1)
+            ix = torch.multinomial(
+                probs, num_samples=1, replacement=True, generator=g
+            ).item()
+            out.append(itos[ix])
+            if ix == 0:
+                break
+            context = context[1:] + [ix]
+        print("".join(out))
+
+generate_words(20, g)
