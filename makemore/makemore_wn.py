@@ -39,7 +39,7 @@ class BatchNorm1d:
             elif x.ndim == 3:
               dim = (0,1)
             xmean = x.mean(dim, keepdim=True)
-            xvar = x.std(dim, keepdim=True)
+            xvar = x.var(dim, keepdim=True)
         else:
             xmean = self.running_mean
             xvar = self.running_var

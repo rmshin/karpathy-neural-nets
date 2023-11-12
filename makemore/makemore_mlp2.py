@@ -37,7 +37,7 @@ class BatchNorm1d:
     def __call__(self, x):
         if self.training:
             xmean = x.mean(0, keepdim=True)
-            xvar = x.std(0, keepdim=True)
+            xvar = x.var(0, keepdim=True)
         else:
             xmean = self.running_mean
             xvar = self.running_var
