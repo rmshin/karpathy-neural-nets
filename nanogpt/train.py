@@ -9,13 +9,16 @@ itos = {i: c for c, i in stoi.items()}
 encode = lambda s: [stoi[c] for c in s]  # convert string to list of integers
 decode = lambda l: "".join([itos[i] for i in l])  # convert list of integers to string
 
-batch_size = 4
-block_size = 8
-
 data = torch.tensor(encode(text), dtype=torch.long)
 n = int(0.9 * len(data))
 train_data = data[:n]
 val_data = data[n:]
+
+#### hyper-parameters ####
+batch_size = 4
+block_size = 8
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
 
 torch.manual_seed(1337)
 
