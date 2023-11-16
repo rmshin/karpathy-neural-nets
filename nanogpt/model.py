@@ -63,10 +63,10 @@ class FeedForward(nn.Module):
 
 
 class Block(nn.Module):
-    def __init__(self, embed_dim, num_heads, block_size):
+    def __init__(self, embed_dim, num_heads, block_size, dropout):
         super().__init__()
-        self.mha = MultiHeadedAttention(embed_dim, num_heads, embed_dim // num_heads, block_size)
-        self.ff = FeedForward(embed_dim)
+        self.mha = MultiHeadedAttention(embed_dim, num_heads, embed_dim // num_heads, block_size, dropout)
+        self.ff = FeedForward(embed_dim, dropout)
         self.ln1 = nn.LayerNorm(embed_dim)
         self.ln2 = nn.LayerNorm(embed_dim)
 
@@ -82,11 +82,11 @@ class GPTLanguageModel(nn.Module):
         super().__init__()
         self.block_size = block_size
         self.token_embeding_table = nn.Embedding(vocab_size, embed_dim)
-        position_embedding_table = self._get_pos_embed_table(block_size, embed_dim)
+        position_embedding_table = self._get_pos_embed_table(embed_dim)
         self.register_buffer("pet", position_embedding_table)
         self.dropout = nn.Dropout(dropout)
         self.net = nn.Sequential(
-            *[Block(embed_dim, num_heads, block_size) for _ in range(num_layers)],
+            *[Block(embed_dim, num_heads, block_size, dropout) for _ in range(num_layers)],
             nn.LayerNorm(embed_dim),  # final layer norm
             nn.Linear(embed_dim, vocab_size)  # output logits
         )
@@ -94,9 +94,9 @@ class GPTLanguageModel(nn.Module):
         self.apply(self._init_weights)
     
     # fixed sinusoidal positional embeddings
-    def _get_pos_embed_table(block_size, embed_dim):
-        pet = torch.zeros(block_size, embed_dim)
-        pos = torch.arange(block_size).unsqueeze(1)
+    def _get_pos_embed_table(self, embed_dim):
+        pet = torch.zeros(self.block_size, embed_dim)
+        pos = torch.arange(self.block_size).unsqueeze(1)
         div_term = torch.exp(
             torch.arange(0, embed_dim, 2) * -(math.log(10000.0) / embed_dim)
         )
@@ -117,13 +117,13 @@ class GPTLanguageModel(nn.Module):
         # output size [batch, time-step, vocab_size]
         # both tokens & targets are B, T tensors containing indices
         x = self.token_embeding_table(tokens)
-        x = x + self.pet[x].requires_grad_(False)
+        x = x + self.pet[torch.arange(tokens.shape[1])].requires_grad_(False)
         logits = self.net(self.dropout(x)) # [B, T, vocab_size]
 
         if targets is None:
             loss = None
         else:
-            B, T = logits.shape
+            B, T, _ = logits.shape
             logits = logits.view(B * T, -1)
             targets = targets.view(B * T)
             loss = F.cross_entropy(logits, targets)
